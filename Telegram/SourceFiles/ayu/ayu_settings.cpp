@@ -975,6 +975,12 @@ void AyuSettings::setShowMessageSeconds(bool val) {
 	save();
 }
 
+void AyuSettings::setShowTypingTimer(bool val) {
+	if (_showTypingTimer.current() == val) return;
+	_showTypingTimer = val;
+	save();
+}
+
 void AyuSettings::setShowMessageShot(bool val) {
 	if (_showMessageShot.current() == val) return;
 	_showMessageShot = val;
@@ -1131,6 +1137,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"quickAdminShortcuts", s._quickAdminShortcuts.current()},
 		{"showPeerId", s._showPeerId.current()},
 		{"showMessageSeconds", s._showMessageSeconds.current()},
+		{"showTypingTimer", s._showTypingTimer.current()},
 		{"showMessageShot", s._showMessageShot.current()},
 		{"filterZalgo", s._filterZalgo.current()},
 		{"stickerConfirmation", s._stickerConfirmation.current()},
@@ -1231,6 +1238,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._quickAdminShortcuts = j.value("quickAdminShortcuts", defaults._quickAdminShortcuts.current());
 	s._showPeerId = j.value("showPeerId", defaults._showPeerId.current());
 	s._showMessageSeconds = j.value("showMessageSeconds", defaults._showMessageSeconds.current());
+	s._showTypingTimer = j.value("showTypingTimer", defaults._showTypingTimer.current());
 	s._showMessageShot = j.value("showMessageShot", defaults._showMessageShot.current());
 	s._filterZalgo = j.value("filterZalgo", defaults._filterZalgo.current());
 	s._stickerConfirmation = j.value("stickerConfirmation", defaults._stickerConfirmation.current());

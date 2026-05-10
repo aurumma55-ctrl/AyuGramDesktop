@@ -8349,6 +8349,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_LikelyOfflineStatus" = "offline ?";
 "ayu_GhostModeShortcut" = "Enter with Ghost";
 "ayu_SettingsShowMessageSeconds" = "Show Message Seconds";
+"ayu_SettingsShowTypingTimer" = "Show Typing Timer";
+"ayu_TypingTimerSecondsFormat" = " {seconds}s";
 "ayu_FilterZalgo" = "Filter Zalgo";
 "ayu_ImproveLinkPreviews" = "Improve Link Previews";
 "ayu_ShowOnlyAddedEmojisAndStickers" = "Show Only Added Emojis & Stickers";
