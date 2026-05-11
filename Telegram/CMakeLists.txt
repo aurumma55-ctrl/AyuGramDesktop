@@ -2139,6 +2139,8 @@ if (WIN32)
 
     if (QT_VERSION LESS 6)
         target_link_libraries(Telegram PRIVATE desktop-app::win_directx_helper)
+    else()
+        target_link_libraries(Telegram PRIVATE Dnsapi)
     endif()
 
     target_link_options(Telegram PRIVATE /PDBPAGESIZE:8192)
