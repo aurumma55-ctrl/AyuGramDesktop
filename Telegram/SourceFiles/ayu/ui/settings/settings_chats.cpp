@@ -12,6 +12,7 @@
 #include "ayu/ui/components/message_preview.h"
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
+#include "ayu/features/bulk_chat_management/bulk_chat_management.h"
 #include "ayu/ui/settings/settings_main.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
@@ -87,6 +88,34 @@ void BuildRecentStickersLimit(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	});
 
 	ayu.addSectionDivider();
+}
+
+void BuildBulkManagement(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+	const auto controller = builder.controller();
+
+	builder.addSubsectionTitle(tr::ayu_SettingsBulkManagement());
+
+	builder.addButton({
+		.id = u"ayu/bulkChatManagement"_q,
+		.title = tr::ayu_SettingsBulkManagement(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			AyuFeatures::BulkChatManagement::Show(controller);
+		},
+	});
+
+	builder.addButton({
+		.id = u"ayu/bulkDeleteWhitelist"_q,
+		.title = tr::ayu_SettingsBulkWhitelist(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			AyuFeatures::BulkChatManagement::ShowWhitelistEditor(controller);
+		},
+	});
+
+	builder.addSkip();
+	builder.addDividerText(tr::ayu_SettingsBulkManagementAbout());
+	builder.addSkip();
 }
 
 void BuildGroupsAndChannels(SectionBuilder &builder, AyuSectionBuilder &ayu) {
@@ -462,6 +491,7 @@ const auto kMeta = BuildHelper({
 	builder.addSkip();
 	BuildStickersAndEmoji(builder, ayu);
 	BuildRecentStickersLimit(builder, ayu);
+	BuildBulkManagement(builder, ayu);
 	BuildGroupsAndChannels(builder, ayu);
 	BuildMarks(builder, ayu, previewState);
 	BuildWideMessagesMultiplier(builder, ayu, previewState);

@@ -265,6 +265,14 @@ public:
 	[[nodiscard]] bool isShadowBanned(const int64 id) const { return _shadowBanIds.contains(id); }
 	[[nodiscard]] const std::unordered_set<int64> &shadowBanIds() const { return _shadowBanIds; }
 
+	void setBulkDeleteWhitelist(std::vector<int64> ids);
+	void addToBulkDeleteWhitelist(int64 id);
+	void removeFromBulkDeleteWhitelist(int64 id);
+	[[nodiscard]] bool isInBulkDeleteWhitelist(int64 id) const;
+	[[nodiscard]] const std::vector<int64> &bulkDeleteWhitelist() const { return _bulkDeleteWhitelist.current(); }
+	[[nodiscard]] rpl::producer<std::vector<int64>> bulkDeleteWhitelistValue() const { return _bulkDeleteWhitelist.value(); }
+	[[nodiscard]] rpl::producer<std::vector<int64>> bulkDeleteWhitelistChanges() const { return _bulkDeleteWhitelist.changes(); }
+
 	void validate();
 
 	[[nodiscard]] bool saveDeletedMessages() const { return _saveDeletedMessages.current(); }
@@ -620,6 +628,7 @@ private:
 	rpl::variable<bool> _saveMessagesHistory = true;
 	rpl::variable<bool> _saveForBots = false;
 	std::unordered_set<int64> _shadowBanIds;
+	rpl::variable<std::vector<int64>> _bulkDeleteWhitelist;
 	rpl::variable<bool> _filtersEnabled = false;
 	rpl::variable<bool> _filtersEnabledInChats = false;
 	rpl::variable<bool> _hideFromBlocked = false;

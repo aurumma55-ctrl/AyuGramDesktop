@@ -247,6 +247,8 @@ set(ayugram_files
         ayu/features/filters/filters_cache_controller.h
         ayu/features/filters/filters_utils.cpp
         ayu/features/filters/filters_utils.h
+        ayu/features/bulk_chat_management/bulk_chat_management.cpp
+        ayu/features/bulk_chat_management/bulk_chat_management.h
         ayu/data/messages_storage.cpp
         ayu/data/messages_storage.h
         ayu/data/entities.h
