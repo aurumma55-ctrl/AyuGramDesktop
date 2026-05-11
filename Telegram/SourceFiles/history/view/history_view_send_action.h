@@ -64,9 +64,11 @@ private:
 	const style::TextStyle &_st;
 	Data::ForumTopic *_topic = nullptr;
 	base::flat_map<not_null<UserData*>, crl::time> _typing;
+	base::flat_map<not_null<UserData*>, crl::time> _typingStartedAt;
 	base::flat_map<not_null<UserData*>, crl::time> _speaking;
 	base::flat_map<not_null<UserData*>, Api::SendProgress> _sendActions;
 	QString _sendActionString;
+	int _typingTimerSeconds = -1;
 	Ui::Text::String _sendActionText;
 	Ui::SendActionAnimation _sendActionAnimation;
 	Ui::SendActionAnimation _speakingAnimation;

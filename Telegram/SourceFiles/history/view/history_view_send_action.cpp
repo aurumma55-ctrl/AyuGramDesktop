@@ -80,6 +80,9 @@ bool SendActionPainter::updateNeedsAnimating(
 		_sendActions.emplace_or_assign(user, type, now + duration, progress);
 	};
 	action.match([&](const MTPDsendMessageTypingAction &) {
+		if (!_typing.contains(user)) {
+			_typingStartedAt.emplace_or_assign(user, now);
+		}
 		_typing.emplace_or_assign(user, now + kStatusShowClientsideTyping);
 	}, [&](const MTPDsendMessageRecordVideoAction &) {
 		emplaceAction(Type::RecordVideo, kStatusShowClientsideRecordVideo);
@@ -219,11 +222,25 @@ bool SendActionPainter::updateNeedsAnimating(crl::time now, bool force) {
 	auto speakingChanged = false;
 	for (auto i = begin(_typing); i != end(_typing);) {
 		if (now >= i->second) {
+			_typingStartedAt.remove(i->first);
 			i = _typing.erase(i);
 			sendActionChanged = true;
 		} else {
 			++i;
 		}
+	}
+	const auto &settings = AyuSettings::getInstance();
+	auto newTypingTimerSeconds = -1;
+	if (settings.showTypingTimer() && _typing.size() == 1) {
+		const auto user = begin(_typing)->first;
+		const auto i = _typingStartedAt.find(user);
+		if (i != end(_typingStartedAt) && now >= i->second) {
+			newTypingTimerSeconds = int((now - i->second) / 1000);
+		}
+	}
+	if (newTypingTimerSeconds != _typingTimerSeconds) {
+		_typingTimerSeconds = newTypingTimerSeconds;
+		sendActionChanged = true;
 	}
 	for (auto i = begin(_speaking); i != end(_speaking);) {
 		if (now >= i->second) {
@@ -262,6 +279,12 @@ bool SendActionPainter::updateNeedsAnimating(crl::time now, bool force) {
 					tr::now,
 					lt_user,
 					begin(_typing)->first->firstName);
+			if (_typingTimerSeconds >= 0 && typingCount == 1) {
+				newTypingString += tr::ayu_TypingTimerSecondsFormat(
+					tr::now,
+					lt_seconds,
+					QString::number(_typingTimerSeconds));
+			}
 		} else if (!_sendActions.empty()) {
 			// Handles all actions except game playing.
 			using Type = Api::SendProgressType;
@@ -426,6 +449,7 @@ void SendActionPainter::clear(not_null<UserData*> from) {
 	if (i != _typing.cend()) {
 		updateAtMs = crl::now();
 		i->second = updateAtMs;
+		_typingStartedAt.remove(from);
 	}
 	auto j = _sendActions.find(from);
 	if (j != _sendActions.cend()) {
