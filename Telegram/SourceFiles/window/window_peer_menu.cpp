@@ -130,10 +130,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QApplication>
 
 // AyuGram includes
-#include "ayu/utils/telegram_helpers.h"
-#include "styles/style_ayu_icons.h"
-#include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/features/admin_panel/admin_panel.h"
 #include "ayu/features/forward/ayu_forward.h"
+#include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/utils/telegram_helpers.h"
+
+#include "styles/style_ayu_icons.h"
 
 
 namespace Window {
@@ -1767,6 +1769,31 @@ void Filler::fillContextMenuActions() {
 void Filler::fillHistoryActions() {
 	addToggleMuteSubmenu(true);
 	AyuUi::AddAyuGramActions(_peer, _thread, _controller, _addAction);
+	if (_peer) {
+		const auto peer = _peer;
+		const auto controller = _controller;
+		const auto isAdmin = [&] {
+			if (const auto channel = peer->asChannel()) {
+				return channel->amCreator()
+					|| (channel->adminRights() != ChatAdminRights());
+			}
+			if (const auto chat = peer->asChat()) {
+				return chat->amCreator() || chat->hasAdminRights();
+			}
+			return false;
+		}();
+		if (isAdmin) {
+			_addAction({
+				.text = tr::ayu_AdminPanel(tr::now),
+				.handler = [=] {
+					AyuFeatures::AdminPanel::ShowAdminPanel(
+						controller,
+						peer);
+				},
+				.icon = &st::menuIconAdmin,
+			});
+		}
+	}
 	addCreateTopic();
 	addInfo();
 	AyuUi::AddJumpToBeginningAction(_peer, _thread, _controller, _addAction);

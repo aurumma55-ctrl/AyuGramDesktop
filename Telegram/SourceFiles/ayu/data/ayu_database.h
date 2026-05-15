@@ -55,6 +55,12 @@ void deleteAllExclusions();
 bool hasFilters();
 bool hasPerDialogFilters();
 
+void addWarn(const AyuWarnEntry &warn);
+std::vector<AyuWarnEntry> getWarns(ID chatId);
+int getActiveWarnCount(ID chatId, ID userId);
+void removeWarn(ID fakeId);
+void removeAllWarns(ID chatId, ID userId);
+
 void moveCurrentDatabase();
 
 }
