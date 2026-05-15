@@ -9,6 +9,7 @@
 #include "api/api_chat_participants.h"
 #include "apiwrap.h"
 #include "ayu/data/ayu_database.h"
+#include "base/random.h"
 #include "base/unixtime.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
@@ -25,7 +26,6 @@
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/fields/input_field.h"
-#include "ui/widgets/fields/number_input.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/wrap/vertical_layout.h"
@@ -115,8 +115,14 @@ void PerformBan(
 		not_null<UserData*> user,
 		TimeId untilDate) {
 	if (const auto channel = peer->asChannel()) {
-		auto flags = ChatRestriction::SendMessages
-			| ChatRestriction::SendMedia
+		auto flags = ChatRestriction::ViewMessages
+			| ChatRestriction::SendPhotos
+			| ChatRestriction::SendVideos
+			| ChatRestriction::SendVideoMessages
+			| ChatRestriction::SendMusic
+			| ChatRestriction::SendVoiceMessages
+			| ChatRestriction::SendFiles
+			| ChatRestriction::SendOther
 			| ChatRestriction::SendStickers
 			| ChatRestriction::SendGifs
 			| ChatRestriction::SendInline
@@ -125,8 +131,7 @@ void PerformBan(
 			| ChatRestriction::EmbedLinks
 			| ChatRestriction::AddParticipants
 			| ChatRestriction::PinMessages
-			| ChatRestriction::ChangeInfo
-			| ChatRestriction::ViewMessages;
+			| ChatRestriction::ChangeInfo;
 		auto rights = ChatRestrictionsInfo(flags, untilDate);
 		peer->session().api().chatParticipants().kick(
 			channel,
@@ -142,8 +147,13 @@ void PerformMute(
 		not_null<UserData*> user,
 		TimeId untilDate) {
 	if (const auto channel = peer->asChannel()) {
-		auto flags = ChatRestriction::SendMessages
-			| ChatRestriction::SendMedia
+		auto flags = ChatRestriction::SendPhotos
+			| ChatRestriction::SendVideos
+			| ChatRestriction::SendVideoMessages
+			| ChatRestriction::SendMusic
+			| ChatRestriction::SendVoiceMessages
+			| ChatRestriction::SendFiles
+			| ChatRestriction::SendOther
 			| ChatRestriction::SendStickers
 			| ChatRestriction::SendGifs
 			| ChatRestriction::SendInline
@@ -201,7 +211,7 @@ void ShowActionBox(
 		not_null<PeerData*> peer,
 		not_null<UserData*> user,
 		ActionType type) {
-	const auto myUser = &peer->session().user();
+	const auto myUser = peer->session().user();
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
 		const auto titles = std::array{
 			tr::ayu_AdminKick(tr::now),
@@ -216,8 +226,7 @@ void ShowActionBox(
 		};
 		const auto state = box->lifetime().make_state<State>();
 
-		Ui::NumberInput *durationInput = nullptr;
-		QWidget *unitContainer = nullptr;
+		Ui::InputField *durationInput = nullptr;
 
 		if (type != ActionType::Kick) {
 			box->addRow(
@@ -227,24 +236,10 @@ void ShowActionBox(
 					st::boxLabel),
 				st::boxRowPadding);
 
-			const auto durationWrap = box->addRow(
-				object_ptr<Ui::FixedHeightWidget>(
-					box,
-					st::boxPadding.bottom()
-						+ st::defaultInputField.heightMin
-						+ st::boxPadding.bottom()));
-
-			durationInput = Ui::CreateChild<Ui::NumberInput>(
-				durationWrap,
+			durationInput = box->addRow(object_ptr<Ui::InputField>(
+				box,
 				st::defaultInputField,
-				tr::ayu_AdminDurationPlaceholder(),
-				QString(),
-				999999);
-			durationWrap->widthValue(
-			) | rpl::on_next([=](int width) {
-				durationInput->resize(width, durationInput->height());
-				durationInput->moveToLeft(0, st::boxPadding.bottom());
-			}, durationInput->lifetime());
+				tr::ayu_AdminDurationPlaceholder()));
 
 			const auto units = std::array{
 				tr::ayu_AdminDurationSeconds(tr::now),
@@ -257,7 +252,6 @@ void ShowActionBox(
 			};
 			const auto unitLayout = box->addRow(
 				object_ptr<Ui::VerticalLayout>(box));
-			unitContainer = unitLayout;
 			for (auto i = 0; i < int(units.size()); ++i) {
 				const auto btn = unitLayout->add(
 					object_ptr<Ui::RoundButton>(
@@ -276,27 +270,17 @@ void ShowActionBox(
 				tr::ayu_AdminReasonTitle(),
 				st::boxLabel),
 			st::boxRowPadding);
-		const auto reasonWrap = box->addRow(
-			object_ptr<Ui::FixedHeightWidget>(
-				box,
-				st::boxPadding.bottom()
-					+ st::defaultInputField.heightMin
-					+ st::boxPadding.bottom()));
-		const auto reasonField = Ui::CreateChild<Ui::InputField>(
-			reasonWrap,
+		const auto reasonField = box->addRow(object_ptr<Ui::InputField>(
+			box,
 			st::defaultInputField,
-			tr::ayu_AdminReasonPlaceholder());
-		reasonWrap->widthValue(
-		) | rpl::on_next([=](int width) {
-			reasonField->resize(width, reasonField->height());
-			reasonField->moveToLeft(0, st::boxPadding.bottom());
-		}, reasonField->lifetime());
+			tr::ayu_AdminReasonPlaceholder()));
 
 		const auto notifyCheck = box->addRow(
 			object_ptr<Ui::Checkbox>(
 				box,
 				tr::ayu_AdminNotify(tr::now),
-				true),
+				true,
+				st::defaultBoxCheckbox),
 			st::boxRowPadding);
 
 		box->addButton(tr::ayu_AdminConfirmAction(), [=] {
@@ -307,7 +291,7 @@ void ShowActionBox(
 				untilDate = ComputeUntilDate(val, state->unitIndex);
 			}
 
-			auto adminName = UserName((*myUser));
+			auto adminName = UserName(myUser);
 			auto userName = UserName(user);
 
 			switch (type) {
@@ -356,24 +340,24 @@ void ShowActionBox(
 			case ActionType::Warn: {
 				auto warn = AyuWarnEntry{
 					.fakeId = 0,
-					.chatId = peer->id.value,
-					.userId = peerToUser(user->id).bare,
-					.adminId = peerToUser((*myUser)->id).bare,
+					.chatId = static_cast<ID>(peer->id.value),
+					.userId = static_cast<ID>(peerToUser(user->id).bare),
+					.adminId = static_cast<ID>(peerToUser(myUser->id).bare),
 					.reason = reason.toStdString(),
 					.createdDate = base::unixtime::now(),
 					.expiresDate = untilDate,
 				};
 				AyuDatabase::addWarn(warn);
 				auto warnCount = AyuDatabase::getActiveWarnCount(
-					peer->id.value,
-					peerToUser(user->id).bare);
+					static_cast<ID>(peer->id.value),
+					static_cast<ID>(peerToUser(user->id).bare));
 				if (warnCount >= kAutobanWarnCount) {
 					auto autoUntil = base::unixtime::now()
 						+ kAutobanDurationDays * 86400;
 					PerformBan(controller, peer, user, autoUntil);
 					AyuDatabase::removeAllWarns(
-						peer->id.value,
-						peerToUser(user->id).bare);
+						static_cast<ID>(peer->id.value),
+						static_cast<ID>(peerToUser(user->id).bare));
 					if (notifyCheck->checked()) {
 						SendNotification(controller, peer,
 							tr::ayu_AdminAutobanWarn(
@@ -411,7 +395,7 @@ void ShowPanelBox(
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
 		box->setTitle(tr::ayu_AdminPanel());
 
-		const auto myUser = &peer->session().user();
+		const auto myUser = peer->session().user();
 		const auto channel = peer->asChannel();
 		if (!channel) {
 			box->addRow(
@@ -433,7 +417,8 @@ void ShowPanelBox(
 			object_ptr<Ui::Checkbox>(
 				box,
 				tr::ayu_AdminNotify(tr::now),
-				false),
+				false,
+				st::defaultBoxCheckbox),
 			st::boxRowPadding);
 		notifyCheck->checkedChanges(
 		) | rpl::on_next([=](bool checked) {
@@ -472,7 +457,7 @@ void ShowPanelBox(
 			}
 		};
 
-		auto warns = AyuDatabase::getWarns(peer->id.value);
+		auto warns = AyuDatabase::getWarns(static_cast<ID>(peer->id.value));
 		struct EntryInfo {
 			QString name;
 			Fn<void()> removeAction;
@@ -497,7 +482,7 @@ void ShowPanelBox(
 								lt_user,
 								UserName(warnUser),
 								lt_admin,
-								UserName(*myUser)));
+								UserName(myUser)));
 					}
 					box->closeBox();
 					ShowPanelBox(controller, peer);
