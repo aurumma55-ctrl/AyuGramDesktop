@@ -135,3 +135,15 @@ public:
 	int messageId;
 	int entityCreateDate;
 };
+
+class AyuWarnEntry
+{
+public:
+	ID fakeId;
+	ID chatId;
+	ID userId;
+	ID adminId;
+	std::string reason;
+	int createdDate;
+	int expiresDate;
+};

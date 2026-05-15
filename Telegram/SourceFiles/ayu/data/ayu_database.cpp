@@ -141,6 +141,16 @@ auto storage = make_storage(
 		make_column("dialogId", &SpyMessageContentsRead::dialogId),
 		make_column("messageId", &SpyMessageContentsRead::messageId),
 		make_column("entityCreateDate", &SpyMessageContentsRead::entityCreateDate)
+	),
+	make_table<AyuWarnEntry>(
+		"AyuWarnEntry",
+		make_column("fakeId", &AyuWarnEntry::fakeId, primary_key().autoincrement()),
+		make_column("chatId", &AyuWarnEntry::chatId),
+		make_column("userId", &AyuWarnEntry::userId),
+		make_column("adminId", &AyuWarnEntry::adminId),
+		make_column("reason", &AyuWarnEntry::reason),
+		make_column("createdDate", &AyuWarnEntry::createdDate),
+		make_column("expiresDate", &AyuWarnEntry::expiresDate)
 	)
 );
 
@@ -564,6 +574,57 @@ bool hasPerDialogFilters() {
 	} catch (std::exception &ex) {
 		LOG(("Failed to check if there's any filters: %1").arg(ex.what()));
 		return false;
+	}
+}
+
+void addWarn(const AyuWarnEntry &warn) {
+	try {
+		storage.insert(warn);
+	} catch (std::exception &ex) {
+		LOG(("Failed to add warn: %1").arg(ex.what()));
+	}
+}
+
+std::vector<AyuWarnEntry> getWarns(ID chatId) {
+	try {
+		return storage.get_all<AyuWarnEntry>(
+			where(c(&AyuWarnEntry::chatId) == chatId),
+			order_by(&AyuWarnEntry::createdDate).desc());
+	} catch (std::exception &ex) {
+		LOG(("Failed to get warns: %1").arg(ex.what()));
+		return {};
+	}
+}
+
+int getActiveWarnCount(ID chatId, ID userId) {
+	try {
+		auto now = base::unixtime::now();
+		return storage.count<AyuWarnEntry>(
+			where(c(&AyuWarnEntry::chatId) == chatId
+				&& c(&AyuWarnEntry::userId) == userId
+				&& (c(&AyuWarnEntry::expiresDate) == 0
+					|| c(&AyuWarnEntry::expiresDate) > now)));
+	} catch (std::exception &ex) {
+		LOG(("Failed to count warns: %1").arg(ex.what()));
+		return 0;
+	}
+}
+
+void removeWarn(ID fakeId) {
+	try {
+		storage.remove<AyuWarnEntry>(fakeId);
+	} catch (std::exception &ex) {
+		LOG(("Failed to remove warn: %1").arg(ex.what()));
+	}
+}
+
+void removeAllWarns(ID chatId, ID userId) {
+	try {
+		storage.remove_all<AyuWarnEntry>(
+			where(c(&AyuWarnEntry::chatId) == chatId
+				&& c(&AyuWarnEntry::userId) == userId));
+	} catch (std::exception &ex) {
+		LOG(("Failed to remove all warns: %1").arg(ex.what()));
 	}
 }
 
