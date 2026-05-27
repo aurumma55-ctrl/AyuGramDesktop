@@ -93,17 +93,18 @@ void SendNotification(
 	api.request(MTPmessages_SendMessage(
 		MTP_flags(flags),
 		peer->input(),
-		MTPInputPeer(),
 		MTPInputReplyTo(),
 		MTP_string(text),
 		MTP_long(base::RandomValue<uint64>()),
 		MTPReplyMarkup(),
 		MTP_vector<MTPMessageEntity>(),
 		MTPint(),
+		MTPint(),
 		MTPInputPeer(),
 		MTPInputQuickReplyShortcut(),
 		MTPlong(),
-		MTPInputEffect()
+		MTPlong(),
+		MTPSuggestedPost()
 	)).done([=](const MTPUpdates &result) {
 		peer->session().api().applyUpdates(result);
 	}).send();
