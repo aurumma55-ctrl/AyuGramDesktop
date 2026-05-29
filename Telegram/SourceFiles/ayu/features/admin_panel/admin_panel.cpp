@@ -253,16 +253,21 @@ void ShowActionBox(
 			};
 			const auto unitLayout = box->addRow(
 				object_ptr<Ui::VerticalLayout>(box));
+			const auto unitGroup = std::make_shared<Ui::RadiobuttonGroup>(
+				state->unitIndex);
 			for (auto i = 0; i < int(units.size()); ++i) {
-				const auto btn = unitLayout->add(
-					object_ptr<Ui::RoundButton>(
+				unitLayout->add(
+					object_ptr<Ui::Radiobutton>(
 						unitLayout,
-						rpl::single(units[i]),
-						st::defaultActiveButton));
-				btn->setClickedCallback([=] {
-					state->unitIndex = i;
-				});
+						unitGroup,
+						i,
+						units[i],
+						st::defaultBoxCheckbox),
+					st::boxRowPadding);
 			}
+			unitGroup->setChangedCallback([=](int value) {
+				state->unitIndex = value;
+			});
 		}
 
 		box->addRow(
@@ -397,17 +402,6 @@ void ShowPanelBox(
 		box->setTitle(tr::ayu_AdminPanel());
 
 		const auto myUser = peer->session().user();
-		const auto channel = peer->asChannel();
-		if (!channel) {
-			box->addRow(
-				object_ptr<Ui::FlatLabel>(
-					box,
-					tr::ayu_AdminNoEntries(),
-					st::boxLabel),
-				st::boxRowPadding);
-			box->addButton(tr::lng_close(), [=] { box->closeBox(); });
-			return;
-		}
 
 		struct State {
 			bool notify = false;
@@ -465,18 +459,16 @@ void ShowPanelBox(
 		};
 		auto warnEntries = std::vector<EntryInfo>();
 		for (const auto &w : warns) {
-			auto userId = UserId(w.userId);
-			const auto warnUser = peer->owner().userLoaded(userId);
-			if (!warnUser) {
-				continue;
-			}
-			auto displayName = warnUser->name();
-			auto fakeId = w.fakeId;
+			const auto warnUser = peer->owner().userLoaded(UserId(w.userId));
+			const auto displayName = warnUser
+				? warnUser->name()
+				: tr::ayu_AdminUnavailableUser(tr::now);
+			const auto fakeId = w.fakeId;
 			warnEntries.push_back({
 				.name = displayName + u" — "_q + tr::ayu_AdminRemoveWarn(tr::now),
 				.removeAction = [=] {
 					AyuDatabase::removeWarn(fakeId);
-					if (state->notify) {
+					if (state->notify && warnUser) {
 						SendNotification(controller, peer,
 							tr::ayu_AdminNotifyUnwarn(
 								tr::now,

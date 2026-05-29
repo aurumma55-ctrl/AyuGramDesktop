@@ -8408,6 +8408,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_AdminRemoveMute" = "Снять мут";
 "ayu_AdminRemoveWarn" = "Снять варн";
 "ayu_AdminNoEntries" = "Список пуст";
+"ayu_AdminUnavailableUser" = "Пользователь недоступен";
 "ayu_FilterZalgo" = "Filter Zalgo";
 "ayu_ImproveLinkPreviews" = "Improve Link Previews";
 "ayu_ShowOnlyAddedEmojisAndStickers" = "Show Only Added Emojis & Stickers";
