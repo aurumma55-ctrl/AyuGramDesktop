@@ -128,6 +128,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "ayu/features/admin_panel/admin_panel.h"
 #include "ayu/features/filters/filters_cache_controller.h"
 #include "ayu/ui/context_menu/context_menu.h"
 #include "ayu/ui/settings/filters/edit_filter.h"
@@ -2792,6 +2793,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		AyuUi::AddUserMessagesAction(_menu, item);
 		AyuUi::AddRepeatMessageAction(_menu, item, HistoryView::Context::History);
 		AyuUi::AddMessageDetailsAction(_menu, item);
+		AyuFeatures::AdminPanel::AddAdminAction(_menu, item, _controller);
 	};
 	const auto addPhotoActions = [&](not_null<PhotoData*> photo, HistoryItem *item) {
 		const auto media = photo->activeMediaView();
