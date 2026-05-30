@@ -24,7 +24,9 @@
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/controls/userpic_button.h"
 #include "ui/layers/generic_box.h"
+#include "ui/painter.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/fields/input_field.h"
@@ -546,11 +548,49 @@ void AddParticipantRow(
 		not_null<PeerData*> peer,
 		const ParticipantInfo &info,
 		Fn<void()> refreshCallback) {
-	auto row = container->add(
-		object_ptr<Ui::VerticalLayout>(container),
-		st::boxRowPadding);
+	const auto wrap = container->add(
+		object_ptr<Ui::RpWidget>(container),
+		QMargins(0, 0, 0, 0));
 
-	auto nameText = info.user->name();
+	const auto height = st::peerListItem.height;
+	wrap->resize(wrap->width(), height);
+
+	// Аватарка слева
+	const auto userpic = Ui::CreateChild<Ui::UserpicButton>(
+		wrap,
+		info.user,
+		st::defaultUserpicButton);
+	userpic->setAttribute(Qt::WA_TransparentForMouseEvents);
+	userpic->setGeometry(
+		st::peerListItem.photoPosition.x(),
+		st::peerListItem.photoPosition.y(),
+		st::defaultUserpicButton.size.width(),
+		st::defaultUserpicButton.size.height());
+
+	// Контейнер для текста (имя, bio, статус)
+	const auto textLeft = st::peerListItem.namePosition.x();
+	const auto textTop = st::peerListItem.namePosition.y();
+
+	// Имя пользователя (крупный шрифт)
+	const auto nameLabel = Ui::CreateChild<Ui::FlatLabel>(
+		wrap,
+		rpl::single(info.user->name()),
+		st::peerListItem.nameStyle);
+	nameLabel->moveToLeft(textLeft, textTop);
+
+	// Bio под именем (если есть и короткое)
+	auto bioText = info.user->about();
+	const auto hasBio = !bioText.isEmpty() && bioText.length() < 50;
+	Ui::FlatLabel *bioLabel = nullptr;
+	if (hasBio) {
+		bioLabel = Ui::CreateChild<Ui::FlatLabel>(
+			wrap,
+			rpl::single(bioText),
+			st::peerListItem.statusStyle);
+		bioLabel->moveToLeft(textLeft, textTop + st::peerListItem.nameStyle.font->height);
+	}
+
+	// Статус с таймерами под bio
 	auto now = base::unixtime::now();
 	auto statusText = QString();
 
@@ -572,65 +612,90 @@ void AddParticipantRow(
 		}
 	}
 
-	row->add(
-		object_ptr<Ui::FlatLabel>(
-			row,
-			rpl::single(nameText),
-			st::boxLabel),
-		st::boxRowPadding);
-
 	if (!statusText.isEmpty()) {
-		row->add(
-			object_ptr<Ui::FlatLabel>(
-				row,
-				rpl::single(statusText),
-				st::boxDividerLabel),
-			st::boxRowPadding);
+		const auto statusTop = hasBio
+			? textTop + st::peerListItem.nameStyle.font->height + st::peerListItem.statusStyle.font->height
+			: textTop + st::peerListItem.nameStyle.font->height;
+		const auto statusLabel = Ui::CreateChild<Ui::FlatLabel>(
+			wrap,
+			rpl::single(statusText),
+			st::peerListItem.statusStyle);
+		statusLabel->moveToLeft(textLeft, statusTop);
 	}
 
-	if (info.isBanned) {
-		row->add(
-			object_ptr<Ui::RoundButton>(
-				row,
-				rpl::single(tr::ayu_AdminRemoveBan(tr::now)),
-				st::defaultLightButton),
-			st::boxRowPadding
-		)->setClickedCallback([=] {
-			PerformUnban(peer, info.user);
-			controller->showToast(tr::ayu_AdminDone(tr::now));
-			refreshCallback();
-		});
-	}
-
-	if (info.isMuted) {
-		row->add(
-			object_ptr<Ui::RoundButton>(
-				row,
-				rpl::single(tr::ayu_AdminRemoveMute(tr::now)),
-				st::defaultLightButton),
-			st::boxRowPadding
-		)->setClickedCallback([=] {
-			PerformUnmute(peer, info.user);
-			controller->showToast(tr::ayu_AdminDone(tr::now));
-			refreshCallback();
-		});
-	}
+	// Кнопки действий ГОРИЗОНТАЛЬНО справа
+	const auto buttonsRight = wrap->width() - st::boxRowPadding.right();
+	auto buttonX = buttonsRight;
+	const auto buttonY = (height - st::defaultLightButton.height) / 2;
+	const auto buttonSpacing = st::boxRowPadding.left();
 
 	if (info.activeWarns > 0) {
-		row->add(
-			object_ptr<Ui::RoundButton>(
-				row,
-				rpl::single(tr::ayu_AdminRemoveWarn(tr::now)),
-				st::defaultLightButton),
-			st::boxRowPadding
-		)->setClickedCallback([=] {
+		const auto btn = Ui::CreateChild<Ui::RoundButton>(
+			wrap,
+			rpl::single(tr::ayu_AdminRemoveWarn(tr::now)),
+			st::defaultLightButton);
+		buttonX -= btn->width();
+		btn->moveToRight(wrap->width() - buttonX, buttonY);
+		btn->setClickedCallback([=] {
 			AyuDatabase::removeAllWarns(
 				static_cast<ID>(peer->id.value),
 				static_cast<ID>(peerToUser(info.user->id).bare));
 			controller->showToast(tr::ayu_AdminDone(tr::now));
 			refreshCallback();
 		});
+		buttonX -= buttonSpacing;
 	}
+
+	if (info.isMuted) {
+		const auto btn = Ui::CreateChild<Ui::RoundButton>(
+			wrap,
+			rpl::single(tr::ayu_AdminRemoveMute(tr::now)),
+			st::defaultLightButton);
+		buttonX -= btn->width();
+		btn->moveToRight(wrap->width() - buttonX, buttonY);
+		btn->setClickedCallback([=] {
+			PerformUnmute(peer, info.user);
+			controller->showToast(tr::ayu_AdminDone(tr::now));
+			refreshCallback();
+		});
+		buttonX -= buttonSpacing;
+	}
+
+	if (info.isBanned) {
+		const auto btn = Ui::CreateChild<Ui::RoundButton>(
+			wrap,
+			rpl::single(tr::ayu_AdminRemoveBan(tr::now)),
+			st::defaultLightButton);
+		buttonX -= btn->width();
+		btn->moveToRight(wrap->width() - buttonX, buttonY);
+		btn->setClickedCallback([=] {
+			PerformUnban(peer, info.user);
+			controller->showToast(tr::ayu_AdminDone(tr::now));
+			refreshCallback();
+		});
+	}
+
+	// Обработка изменения ширины
+	wrap->widthValue(
+	) | rpl::on_next([=](int newWidth) {
+		wrap->resize(newWidth, height);
+		userpic->moveToLeft(
+			st::peerListItem.photoPosition.x(),
+			st::peerListItem.photoPosition.y());
+		nameLabel->resizeToWidth(newWidth - textLeft - (buttonsRight - buttonX) - buttonSpacing);
+		if (bioLabel) {
+			bioLabel->resizeToWidth(newWidth - textLeft - (buttonsRight - buttonX) - buttonSpacing);
+		}
+	}, wrap->lifetime());
+
+	// Разделитель после строки
+	const auto separator = Ui::CreateChild<Ui::RpWidget>(container);
+	separator->resize(container->width(), st::lineWidth);
+	separator->paintRequest(
+	) | rpl::on_next([=] {
+		QPainter p(separator);
+		p.fillRect(separator->rect(), st::shadowFg);
+	}, separator->lifetime());
 }
 
 void ShowPanelBox(
