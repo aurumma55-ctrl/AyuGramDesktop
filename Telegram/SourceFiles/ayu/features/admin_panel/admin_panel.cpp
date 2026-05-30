@@ -6,9 +6,11 @@
 // Copyright @Radolyn, 2026
 #include "ayu/features/admin_panel/admin_panel.h"
 
+#include "ayu/features/admin_panel/admin_panel_list_box.h"
 #include "api/api_chat_participants.h"
 #include "apiwrap.h"
 #include "ayu/data/ayu_database.h"
+#include "base/debug_log.h"
 #include "base/random.h"
 #include "base/unixtime.h"
 #include "data/data_channel.h"
@@ -28,7 +30,11 @@
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
+#include "ui/text/format_values.h"
+#include "ui/widgets/discrete_sliders.h"
+#include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
+#include "ui/vertical_list.h"
 #include "window/window_session_controller.h"
 
 #include "styles/style_boxes.h"
@@ -40,6 +46,16 @@ namespace {
 
 constexpr auto kAutobanWarnCount = 3;
 constexpr auto kAutobanDurationDays = 15;
+
+struct ParticipantInfo {
+	not_null<UserData*> user;
+	bool isBanned = false;
+	bool isMuted = false;
+	TimeId banUntil = 0;
+	TimeId muteUntil = 0;
+	int activeWarns = 0;
+	TimeId warnExpire = 0;
+};
 
 [[nodiscard]] bool IsAdmin(not_null<PeerData*> peer) {
 	if (const auto channel = peer->asChannel()) {
@@ -84,6 +100,17 @@ constexpr auto kAutobanDurationDays = 15;
 	return base::unixtime::now() + value * multiplier;
 }
 
+[[nodiscard]] QString FormatDuration(TimeId untilDate) {
+	if (!untilDate) {
+		return tr::lng_rights_chat_banned_forever(tr::now);
+	}
+	const auto seconds = untilDate - base::unixtime::now();
+	if (seconds <= 0) {
+		return tr::lng_rights_chat_banned_forever(tr::now);
+	}
+	return Ui::FormatMuteFor(float64(seconds));
+}
+
 void SendNotification(
 		not_null<Window::SessionController*> controller,
 		not_null<PeerData*> peer,
@@ -107,6 +134,8 @@ void SendNotification(
 		MTPSuggestedPost()
 	)).done([=](const MTPUpdates &result) {
 		peer->session().api().applyUpdates(result);
+	}).fail([=](const MTP::Error &error) {
+		LOG(("AdminPanel: notification send failed: %1").arg(error.type()));
 	}).send();
 }
 
@@ -256,6 +285,7 @@ void ShowActionBox(
 			const auto unitGroup = std::make_shared<Ui::RadiobuttonGroup>(
 				state->unitIndex);
 			for (auto i = 0; i < int(units.size()); ++i) {
+				Ui::AddSkip(unitLayout, st::defaultVerticalListSkip);
 				unitLayout->add(
 					object_ptr<Ui::Radiobutton>(
 						unitLayout,
@@ -325,6 +355,8 @@ void ShowActionBox(
 							userName,
 							lt_admin,
 							adminName,
+							lt_duration,
+							FormatDuration(untilDate),
 							lt_reason,
 							reason));
 				}
@@ -339,6 +371,8 @@ void ShowActionBox(
 							userName,
 							lt_admin,
 							adminName,
+							lt_duration,
+							FormatDuration(untilDate),
 							lt_reason,
 							reason));
 				}
@@ -395,96 +429,317 @@ void ShowActionBox(
 	}));
 }
 
+void LoadRestrictedParticipants(
+		not_null<ChannelData*> channel,
+		Fn<void(std::vector<ParticipantInfo>)> callback) {
+	channel->session().api().request(MTPchannels_GetParticipants(
+		channel->inputChannel(),
+		MTP_channelParticipantsBanned(MTP_string()),
+		MTP_int(0),
+		MTP_int(200),
+		MTP_long(0)
+	)).done([=](const MTPchannels_ChannelParticipants &result) {
+		result.match([&](const MTPDchannels_channelParticipants &data) {
+			channel->owner().processUsers(data.vusers());
+
+			std::vector<ParticipantInfo> participants;
+			for (const auto &p : data.vparticipants().v) {
+				p.match([&](const MTPDchannelParticipantBanned &banned) {
+					auto userId = peerToUser(peerFromMTP(banned.vpeer()));
+					auto user = channel->owner().userLoaded(userId);
+					if (!user) return;
+
+					auto info = ParticipantInfo{.user = user};
+
+					auto restrictions = ChatRestrictionsInfo(banned.vbanned_rights());
+					auto flags = restrictions.flags;
+					auto until = restrictions.until;
+
+					if (flags & ChatRestriction::ViewMessages) {
+						info.isBanned = true;
+						info.banUntil = until;
+					} else {
+						info.isMuted = true;
+						info.muteUntil = until;
+					}
+
+					participants.push_back(info);
+				}, [](const auto &) {});
+			}
+
+			callback(std::move(participants));
+		});
+	}).send();
+}
+
+std::vector<ParticipantInfo> LoadWarnedParticipants(
+		not_null<PeerData*> peer) {
+	auto warns = AyuDatabase::getWarns(static_cast<ID>(peer->id.value));
+	auto now = base::unixtime::now();
+
+	std::map<ID, std::vector<AyuWarnEntry>> warnsByUser;
+	for (const auto &w : warns) {
+		if (w.expiresDate == 0 || w.expiresDate > now) {
+			warnsByUser[w.userId].push_back(w);
+		}
+	}
+
+	std::vector<ParticipantInfo> participants;
+	for (const auto &[userId, userWarns] : warnsByUser) {
+		auto user = peer->owner().userLoaded(UserId(userId));
+		if (!user) continue;
+
+		auto info = ParticipantInfo{.user = user};
+		info.activeWarns = userWarns.size();
+
+		for (const auto &w : userWarns) {
+			if (w.expiresDate > info.warnExpire) {
+				info.warnExpire = w.expiresDate;
+			}
+		}
+
+		participants.push_back(info);
+	}
+
+	return participants;
+}
+
+void LoadAllParticipants(
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer,
+		Fn<void(std::vector<ParticipantInfo>)> callback) {
+	auto channel = peer->asChannel();
+	if (!channel) {
+		callback({});
+		return;
+	}
+
+	LoadRestrictedParticipants(channel, [=](std::vector<ParticipantInfo> restricted) {
+		auto warned = LoadWarnedParticipants(peer);
+
+		std::map<UserId, ParticipantInfo> merged;
+		for (auto &r : restricted) {
+			merged[r.user->id] = r;
+		}
+		for (auto &w : warned) {
+			auto it = merged.find(w.user->id);
+			if (it != merged.end()) {
+				it->second.activeWarns = w.activeWarns;
+				it->second.warnExpire = w.warnExpire;
+			} else {
+				merged[w.user->id] = w;
+			}
+		}
+
+		std::vector<ParticipantInfo> result;
+		for (auto &[_, info] : merged) {
+			result.push_back(info);
+		}
+
+		callback(std::move(result));
+	});
+}
+
+void AddParticipantRow(
+		not_null<Ui::VerticalLayout*> container,
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer,
+		const ParticipantInfo &info,
+		Fn<void()> refreshCallback) {
+	auto row = container->add(
+		object_ptr<Ui::VerticalLayout>(container),
+		st::boxRowPadding);
+
+	auto nameText = info.user->name();
+	auto now = base::unixtime::now();
+	auto statusText = QString();
+
+	if (info.isBanned && info.banUntil > now) {
+		statusText = tr::ayu_AdminBanExpires(tr::now) + " "
+			+ Ui::FormatTTL(info.banUntil - now);
+	}
+	if (info.isMuted && info.muteUntil > now) {
+		if (!statusText.isEmpty()) statusText += " | ";
+		statusText += tr::ayu_AdminMuteExpires(tr::now) + " "
+			+ Ui::FormatTTL(info.muteUntil - now);
+	}
+	if (info.activeWarns > 0) {
+		if (!statusText.isEmpty()) statusText += " | ";
+		statusText += QString::number(info.activeWarns) + " "
+			+ tr::ayu_AdminPillWarnShort(tr::now);
+		if (info.warnExpire > now) {
+			statusText += " (" + Ui::FormatTTL(info.warnExpire - now) + ")";
+		}
+	}
+
+	row->add(
+		object_ptr<Ui::FlatLabel>(
+			row,
+			rpl::single(nameText),
+			st::boxLabel),
+		st::boxRowPadding);
+
+	if (!statusText.isEmpty()) {
+		row->add(
+			object_ptr<Ui::FlatLabel>(
+				row,
+				rpl::single(statusText),
+				st::boxDividerLabel),
+			st::boxRowPadding);
+	}
+
+	if (info.isBanned) {
+		row->add(
+			object_ptr<Ui::RoundButton>(
+				row,
+				rpl::single(tr::ayu_AdminRemoveBan(tr::now)),
+				st::defaultLightButton),
+			st::boxRowPadding
+		)->setClickedCallback([=] {
+			PerformUnban(peer, info.user);
+			controller->showToast(tr::ayu_AdminDone(tr::now));
+			refreshCallback();
+		});
+	}
+
+	if (info.isMuted) {
+		row->add(
+			object_ptr<Ui::RoundButton>(
+				row,
+				rpl::single(tr::ayu_AdminRemoveMute(tr::now)),
+				st::defaultLightButton),
+			st::boxRowPadding
+		)->setClickedCallback([=] {
+			PerformUnmute(peer, info.user);
+			controller->showToast(tr::ayu_AdminDone(tr::now));
+			refreshCallback();
+		});
+	}
+
+	if (info.activeWarns > 0) {
+		row->add(
+			object_ptr<Ui::RoundButton>(
+				row,
+				rpl::single(tr::ayu_AdminRemoveWarn(tr::now)),
+				st::defaultLightButton),
+			st::boxRowPadding
+		)->setClickedCallback([=] {
+			AyuDatabase::removeAllWarns(
+				static_cast<ID>(peer->id.value),
+				static_cast<ID>(peerToUser(info.user->id).bare));
+			controller->showToast(tr::ayu_AdminDone(tr::now));
+			refreshCallback();
+		});
+	}
+}
+
 void ShowPanelBox(
 		not_null<Window::SessionController*> controller,
 		not_null<PeerData*> peer) {
+	auto channel = peer->asChannel();
+	if (!channel) {
+		controller->showToast(tr::ayu_AdminOnlyChannels(tr::now));
+		return;
+	}
+
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
 		box->setTitle(tr::ayu_AdminPanel());
 
-		const auto myUser = peer->session().user();
-
 		struct State {
-			bool notify = false;
+			std::vector<ParticipantInfo> allParticipants;
+			int currentTab = 0;
 		};
-		const auto state = box->lifetime().make_state<State>();
+		auto state = box->lifetime().make_state<State>();
 
-		const auto notifyCheck = box->addRow(
-			object_ptr<Ui::Checkbox>(
-				box,
-				tr::ayu_AdminNotify(tr::now),
-				false,
-				st::defaultBoxCheckbox),
+		auto slider = box->addRow(
+			object_ptr<Ui::SettingsSlider>(box, st::settingsSlider),
 			st::boxRowPadding);
-		notifyCheck->checkedChanges(
-		) | rpl::on_next([=](bool checked) {
-			state->notify = checked;
-		}, notifyCheck->lifetime());
+		slider->addSection(tr::ayu_AdminTabBanned(tr::now));
+		slider->addSection(tr::ayu_AdminTabMuted(tr::now));
+		slider->addSection(tr::ayu_AdminTabWarned(tr::now));
 
-		const auto content = box->addRow(
-			object_ptr<Ui::VerticalLayout>(box));
+		auto mainContent = box->addRow(object_ptr<Ui::VerticalLayout>(box));
 
-		const auto addSection = [&](
-				const QString &title,
-				auto &&entries,
-				auto &&removeCallback) {
-			content->add(
-				object_ptr<Ui::FlatLabel>(
-					content,
-					rpl::single(title),
-					st::boxLabel),
-				st::boxRowPadding);
-			if (entries.empty()) {
-				content->add(
-					object_ptr<Ui::FlatLabel>(
-						content,
-						tr::ayu_AdminNoEntries(),
-						st::boxLabel),
-					st::boxRowPadding);
-			}
-			for (auto &entry : entries) {
-				const auto row = content->add(
-					object_ptr<Ui::RoundButton>(
-						content,
-						rpl::single(entry.name),
-						st::defaultActiveButton),
-					st::boxRowPadding);
-				row->setClickedCallback(entry.removeAction);
-			}
-		};
+		auto bannedWrap = mainContent->add(
+			object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+				mainContent,
+				object_ptr<Ui::VerticalLayout>(mainContent)));
+		auto mutedWrap = mainContent->add(
+			object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+				mainContent,
+				object_ptr<Ui::VerticalLayout>(mainContent)));
+		auto warnedWrap = mainContent->add(
+			object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+				mainContent,
+				object_ptr<Ui::VerticalLayout>(mainContent)));
 
-		auto warns = AyuDatabase::getWarns(static_cast<ID>(peer->id.value));
-		struct EntryInfo {
-			QString name;
-			Fn<void()> removeAction;
-		};
-		auto warnEntries = std::vector<EntryInfo>();
-		for (const auto &w : warns) {
-			const auto warnUser = peer->owner().userLoaded(UserId(w.userId));
-			const auto displayName = warnUser
-				? warnUser->name()
-				: tr::ayu_AdminUnavailableUser(tr::now);
-			const auto fakeId = w.fakeId;
-			warnEntries.push_back({
-				.name = displayName + u" — "_q + tr::ayu_AdminRemoveWarn(tr::now),
-				.removeAction = [=] {
-					AyuDatabase::removeWarn(fakeId);
-					if (state->notify && warnUser) {
-						SendNotification(controller, peer,
-							tr::ayu_AdminNotifyUnwarn(
-								tr::now,
-								lt_user,
-								UserName(warnUser),
-								lt_admin,
-								UserName(myUser)));
+		bannedWrap->toggle(true, anim::type::instant);
+		mutedWrap->toggle(false, anim::type::instant);
+		warnedWrap->toggle(false, anim::type::instant);
+
+		auto wraps = std::array{bannedWrap, mutedWrap, warnedWrap};
+
+		auto refresh = [=]() mutable {
+			LoadAllParticipants(controller, peer, [=](std::vector<ParticipantInfo> participants) {
+				state->allParticipants = std::move(participants);
+
+				bannedWrap->entity()->clear();
+				mutedWrap->entity()->clear();
+				warnedWrap->entity()->clear();
+
+				for (const auto &p : state->allParticipants) {
+					if (p.isBanned) {
+						AddParticipantRow(bannedWrap->entity(), controller, peer, p, refresh);
 					}
-					box->closeBox();
-					ShowPanelBox(controller, peer);
-				},
+				}
+				if (bannedWrap->entity()->count() == 0) {
+					bannedWrap->entity()->add(
+						object_ptr<Ui::FlatLabel>(
+							bannedWrap->entity(),
+							tr::ayu_AdminListEmpty(),
+							st::boxLabel),
+						st::boxRowPadding);
+				}
+
+				for (const auto &p : state->allParticipants) {
+					if (p.isMuted) {
+						AddParticipantRow(mutedWrap->entity(), controller, peer, p, refresh);
+					}
+				}
+				if (mutedWrap->entity()->count() == 0) {
+					mutedWrap->entity()->add(
+						object_ptr<Ui::FlatLabel>(
+							mutedWrap->entity(),
+							tr::ayu_AdminListEmpty(),
+							st::boxLabel),
+						st::boxRowPadding);
+				}
+
+				for (const auto &p : state->allParticipants) {
+					if (p.activeWarns > 0) {
+						AddParticipantRow(warnedWrap->entity(), controller, peer, p, refresh);
+					}
+				}
+				if (warnedWrap->entity()->count() == 0) {
+					warnedWrap->entity()->add(
+						object_ptr<Ui::FlatLabel>(
+							warnedWrap->entity(),
+							tr::ayu_AdminListEmpty(),
+							st::boxLabel),
+						st::boxRowPadding);
+				}
 			});
-		}
-		addSection(tr::ayu_AdminPanelWarns(tr::now),
-			warnEntries,
-			nullptr);
+		};
+
+		slider->sectionActivated(
+		) | rpl::on_next([=](int index) {
+			state->currentTab = index;
+			for (auto i = 0; i < wraps.size(); ++i) {
+				wraps[i]->toggle(i == index, anim::type::normal);
+			}
+		}, slider->lifetime());
+
+		refresh();
 
 		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 	}));
@@ -516,6 +771,7 @@ void AddAdminAction(
 			const auto addBtn = [&](
 					const QString &text,
 					ActionType type) {
+				Ui::AddSkip(content, st::defaultVerticalListSkip);
 				content->add(
 					object_ptr<Ui::RoundButton>(
 						content,
