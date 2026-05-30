@@ -6,7 +6,6 @@
 // Copyright @Radolyn, 2026
 #include "ayu/features/admin_panel/admin_panel.h"
 
-#include "ayu/features/admin_panel/admin_panel_list_box.h"
 #include "api/api_chat_participants.h"
 #include "apiwrap.h"
 #include "ayu/data/ayu_database.h"
