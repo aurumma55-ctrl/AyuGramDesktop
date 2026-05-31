@@ -41,6 +41,7 @@
 #include "styles/style_boxes.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_settings.h"
 
 namespace AyuFeatures::AdminPanel {
 namespace {
