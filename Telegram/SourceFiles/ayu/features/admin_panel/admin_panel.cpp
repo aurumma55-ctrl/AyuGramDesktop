@@ -579,7 +579,7 @@ void AddParticipantRow(
 	const auto nameLabel = Ui::CreateChild<Ui::FlatLabel>(
 		wrap,
 		rpl::single(info.user->name()),
-		st::contactsNameStyle);
+		st::defaultFlatLabel);
 	nameLabel->moveToLeft(textLeft, textTop);
 
 	// Bio под именем (если есть и короткое)
