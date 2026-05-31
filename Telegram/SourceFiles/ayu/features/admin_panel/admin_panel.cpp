@@ -551,7 +551,7 @@ void AddParticipantRow(
 		object_ptr<Ui::RpWidget>(container),
 		QMargins(0, 0, 0, 0));
 
-	const auto height = st::peerListItem.height;
+	const auto height = st::defaultPeerListItem.height;
 	wrap->resize(wrap->width(), height);
 
 	// Аватарка слева
@@ -561,20 +561,20 @@ void AddParticipantRow(
 		st::defaultUserpicButton);
 	userpic->setAttribute(Qt::WA_TransparentForMouseEvents);
 	userpic->setGeometry(
-		st::peerListItem.photoPosition.x(),
-		st::peerListItem.photoPosition.y(),
+		st::defaultPeerListItem.photoPosition.x(),
+		st::defaultPeerListItem.photoPosition.y(),
 		st::defaultUserpicButton.size.width(),
 		st::defaultUserpicButton.size.height());
 
 	// Контейнер для текста (имя, bio, статус)
-	const auto textLeft = st::peerListItem.namePosition.x();
-	const auto textTop = st::peerListItem.namePosition.y();
+	const auto textLeft = st::defaultPeerListItem.namePosition.x();
+	const auto textTop = st::defaultPeerListItem.namePosition.y();
 
 	// Имя пользователя (крупный шрифт)
 	const auto nameLabel = Ui::CreateChild<Ui::FlatLabel>(
 		wrap,
 		rpl::single(info.user->name()),
-		st::peerListItem.nameStyle);
+		st::defaultPeerListItem.nameStyle);
 	nameLabel->moveToLeft(textLeft, textTop);
 
 	// Bio под именем (если есть и короткое)
@@ -585,8 +585,8 @@ void AddParticipantRow(
 		bioLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(bioText),
-			st::peerListItem.statusStyle);
-		bioLabel->moveToLeft(textLeft, textTop + st::peerListItem.nameStyle.font->height);
+			st::defaultPeerListItem.statusStyle);
+		bioLabel->moveToLeft(textLeft, textTop + st::defaultPeerListItem.nameStyle.font->height);
 	}
 
 	// Статус с таймерами под bio
@@ -613,12 +613,12 @@ void AddParticipantRow(
 
 	if (!statusText.isEmpty()) {
 		const auto statusTop = hasBio
-			? textTop + st::peerListItem.nameStyle.font->height + st::peerListItem.statusStyle.font->height
-			: textTop + st::peerListItem.nameStyle.font->height;
+			? textTop + st::defaultPeerListItem.nameStyle.font->height + st::defaultPeerListItem.statusStyle.font->height
+			: textTop + st::defaultPeerListItem.nameStyle.font->height;
 		const auto statusLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(statusText),
-			st::peerListItem.statusStyle);
+			st::defaultPeerListItem.statusStyle);
 		statusLabel->moveToLeft(textLeft, statusTop);
 	}
 
@@ -679,8 +679,8 @@ void AddParticipantRow(
 	) | rpl::on_next([=](int newWidth) {
 		wrap->resize(newWidth, height);
 		userpic->moveToLeft(
-			st::peerListItem.photoPosition.x(),
-			st::peerListItem.photoPosition.y());
+			st::defaultPeerListItem.photoPosition.x(),
+			st::defaultPeerListItem.photoPosition.y());
 		nameLabel->resizeToWidth(newWidth - textLeft - (buttonsRight - buttonX) - buttonSpacing);
 		if (bioLabel) {
 			bioLabel->resizeToWidth(newWidth - textLeft - (buttonsRight - buttonX) - buttonSpacing);
