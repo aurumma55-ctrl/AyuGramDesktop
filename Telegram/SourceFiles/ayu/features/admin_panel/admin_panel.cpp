@@ -470,6 +470,10 @@ void LoadRestrictedParticipants(
 			}
 
 			callback(std::move(participants));
+		}, [&](const MTPDchannels_channelParticipantsNotModified &) {
+			LOG(("API Error: "
+				"channels.channelParticipantsNotModified received!"));
+			callback({});
 		});
 	}).send();
 }
