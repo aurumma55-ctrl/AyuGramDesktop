@@ -586,7 +586,7 @@ void AddParticipantRow(
 		bioLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(bioText),
-			st::contactsStatusStyle);
+			st::defaultFlatLabel);
 		bioLabel->moveToLeft(textLeft, textTop + st::semiboldFont->height);
 	}
 
@@ -614,12 +614,12 @@ void AddParticipantRow(
 
 	if (!statusText.isEmpty()) {
 		const auto statusTop = hasBio
-			? textTop + st::semiboldFont->height + st::contactsStatusFont->height
+			? textTop + st::semiboldFont->height + st::normalFont->height
 			: textTop + st::semiboldFont->height;
 		const auto statusLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(statusText),
-			st::contactsStatusStyle);
+			st::defaultFlatLabel);
 		statusLabel->moveToLeft(textLeft, statusTop);
 	}
 
