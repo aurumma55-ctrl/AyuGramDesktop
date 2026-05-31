@@ -518,17 +518,17 @@ void LoadAllParticipants(
 	LoadRestrictedParticipants(channel, [=](std::vector<ParticipantInfo> restricted) {
 		auto warned = LoadWarnedParticipants(peer);
 
-		std::map<UserId, ParticipantInfo> merged;
+		std::map<uint64, ParticipantInfo> merged;
 		for (auto &r : restricted) {
-			merged[r.user->id] = r;
+			merged[r.user->id.value] = r;
 		}
 		for (auto &w : warned) {
-			auto it = merged.find(w.user->id);
+			auto it = merged.find(w.user->id.value);
 			if (it != merged.end()) {
 				it->second.activeWarns = w.activeWarns;
 				it->second.warnExpire = w.warnExpire;
 			} else {
-				merged[w.user->id] = w;
+				merged[w.user->id.value] = w;
 			}
 		}
 
@@ -743,7 +743,8 @@ void ShowPanelBox(
 
 		auto wraps = std::array{bannedWrap, mutedWrap, warnedWrap};
 
-		auto refresh = [=]() mutable {
+		const auto refresh = std::make_shared<Fn<void()>>();
+		*refresh = [=] {
 			LoadAllParticipants(controller, peer, [=](std::vector<ParticipantInfo> participants) {
 				state->allParticipants = std::move(participants);
 
@@ -753,7 +754,7 @@ void ShowPanelBox(
 
 				for (const auto &p : state->allParticipants) {
 					if (p.isBanned) {
-						AddParticipantRow(bannedWrap->entity(), controller, peer, p, refresh);
+						AddParticipantRow(bannedWrap->entity(), controller, peer, p, *refresh);
 					}
 				}
 				if (bannedWrap->entity()->count() == 0) {
@@ -767,7 +768,7 @@ void ShowPanelBox(
 
 				for (const auto &p : state->allParticipants) {
 					if (p.isMuted) {
-						AddParticipantRow(mutedWrap->entity(), controller, peer, p, refresh);
+						AddParticipantRow(mutedWrap->entity(), controller, peer, p, *refresh);
 					}
 				}
 				if (mutedWrap->entity()->count() == 0) {
@@ -781,7 +782,7 @@ void ShowPanelBox(
 
 				for (const auto &p : state->allParticipants) {
 					if (p.activeWarns > 0) {
-						AddParticipantRow(warnedWrap->entity(), controller, peer, p, refresh);
+						AddParticipantRow(warnedWrap->entity(), controller, peer, p, *refresh);
 					}
 				}
 				if (warnedWrap->entity()->count() == 0) {
@@ -803,7 +804,7 @@ void ShowPanelBox(
 			}
 		}, slider->lifetime());
 
-		refresh();
+		(*refresh)();
 
 		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 	}));
