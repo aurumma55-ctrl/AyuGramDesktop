@@ -50,7 +50,7 @@ constexpr auto kAutobanWarnCount = 3;
 constexpr auto kAutobanDurationDays = 15;
 
 struct ParticipantInfo {
-	not_null<UserData*> user;
+	UserData *user = nullptr;
 	bool isBanned = false;
 	bool isMuted = false;
 	TimeId banUntil = 0;
