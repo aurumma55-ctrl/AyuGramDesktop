@@ -575,7 +575,7 @@ void AddParticipantRow(
 	const auto nameLabel = Ui::CreateChild<Ui::FlatLabel>(
 		wrap,
 		rpl::single(info.user->name()),
-		st::defaultPeerListItem.nameStyle);
+		st::contactsNameStyle);
 	nameLabel->moveToLeft(textLeft, textTop);
 
 	// Bio под именем (если есть и короткое)
@@ -586,8 +586,8 @@ void AddParticipantRow(
 		bioLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(bioText),
-			st::defaultPeerListItem.statusStyle);
-		bioLabel->moveToLeft(textLeft, textTop + st::defaultPeerListItem.nameStyle.font->height);
+			st::contactsStatusStyle);
+		bioLabel->moveToLeft(textLeft, textTop + st::semiboldFont->height);
 	}
 
 	// Статус с таймерами под bio
@@ -614,12 +614,12 @@ void AddParticipantRow(
 
 	if (!statusText.isEmpty()) {
 		const auto statusTop = hasBio
-			? textTop + st::defaultPeerListItem.nameStyle.font->height + st::defaultPeerListItem.statusStyle.font->height
-			: textTop + st::defaultPeerListItem.nameStyle.font->height;
+			? textTop + st::semiboldFont->height + st::contactsStatusFont->height
+			: textTop + st::semiboldFont->height;
 		const auto statusLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(statusText),
-			st::defaultPeerListItem.statusStyle);
+			st::contactsStatusStyle);
 		statusLabel->moveToLeft(textLeft, statusTop);
 	}
 
