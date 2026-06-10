@@ -12,6 +12,7 @@
 #include "base/debug_log.h"
 #include "base/random.h"
 #include "base/unixtime.h"
+#include "base/weak_ptr.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_chat_participant_status.h"
@@ -431,12 +432,14 @@ void ShowActionBox(
 	}));
 }
 
-void LoadRestrictedParticipants(
+void LoadRestrictedList(
 		not_null<ChannelData*> channel,
+		const MTPChannelParticipantsFilter &filter,
+		bool markBanned,
 		Fn<void(std::vector<ParticipantInfo>)> callback) {
 	channel->session().api().request(MTPchannels_GetParticipants(
 		channel->inputChannel(),
-		MTP_channelParticipantsBanned(MTP_string()),
+		filter,
 		MTP_int(0),
 		MTP_int(200),
 		MTP_long(0)
@@ -457,7 +460,7 @@ void LoadRestrictedParticipants(
 					auto flags = restrictions.flags;
 					auto until = restrictions.until;
 
-					if (flags & ChatRestriction::ViewMessages) {
+					if (markBanned || (flags & ChatRestriction::ViewMessages)) {
 						info.isBanned = true;
 						info.banUntil = until;
 					} else {
@@ -475,7 +478,46 @@ void LoadRestrictedParticipants(
 				"channels.channelParticipantsNotModified received!"));
 			callback({});
 		});
+	}).fail([=](const MTP::Error &error) {
+		LOG(("AdminPanel: failed to load participants: %1"
+		).arg(error.type()));
+		callback({});
 	}).send();
+}
+
+void LoadRestrictedParticipants(
+		not_null<ChannelData*> channel,
+		Fn<void(std::vector<ParticipantInfo>)> callback) {
+	// Fully banned (removed) users live in the "kicked" list, while
+	// restricted (muted) ones live in the "banned" list, so both
+	// lists are requested and merged.
+	LoadRestrictedList(
+		channel,
+		MTP_channelParticipantsKicked(MTP_string()),
+		true,
+		[=](std::vector<ParticipantInfo> kicked) {
+			LoadRestrictedList(
+				channel,
+				MTP_channelParticipantsBanned(MTP_string()),
+				false,
+				[=, kicked = std::move(kicked)](
+						std::vector<ParticipantInfo> restricted) {
+					auto result = std::move(kicked);
+					for (auto &info : restricted) {
+						const auto already = ranges::find(
+							result,
+							info.user,
+							&ParticipantInfo::user);
+						if (already != end(result)) {
+							already->isMuted = info.isMuted;
+							already->muteUntil = info.muteUntil;
+						} else {
+							result.push_back(info);
+						}
+					}
+					callback(std::move(result));
+				});
+		});
 }
 
 std::vector<ParticipantInfo> LoadWarnedParticipants(
@@ -516,7 +558,9 @@ void LoadAllParticipants(
 		Fn<void(std::vector<ParticipantInfo>)> callback) {
 	auto channel = peer->asChannel();
 	if (!channel) {
-		callback({});
+		// Bans/mutes are unavailable in basic groups,
+		// but local warns still work there.
+		callback(LoadWarnedParticipants(peer));
 		return;
 	}
 
@@ -616,99 +660,98 @@ void AddParticipantRow(
 		}
 	}
 
+	Ui::FlatLabel *statusLabel = nullptr;
 	if (!statusText.isEmpty()) {
 		const auto statusTop = hasBio
 			? textTop + st::semiboldFont->height + st::normalFont->height
 			: textTop + st::semiboldFont->height;
-		const auto statusLabel = Ui::CreateChild<Ui::FlatLabel>(
+		statusLabel = Ui::CreateChild<Ui::FlatLabel>(
 			wrap,
 			rpl::single(statusText),
 			st::defaultFlatLabel);
 		statusLabel->moveToLeft(textLeft, statusTop);
 	}
 
-	// Кнопки действий ГОРИЗОНТАЛЬНО справа
-	const auto buttonsRight = wrap->width() - st::boxRowPadding.right();
-	auto buttonX = buttonsRight;
-	const auto buttonY = (height - st::defaultLightButton.height) / 2;
-	const auto buttonSpacing = st::boxRowPadding.left();
-
-	if (info.activeWarns > 0) {
+	// Кнопки действий горизонтально справа.
+	auto buttons = std::vector<Ui::RoundButton*>();
+	const auto addButton = [&](const QString &text, Fn<void()> handler) {
 		const auto btn = Ui::CreateChild<Ui::RoundButton>(
 			wrap,
-			rpl::single(tr::ayu_AdminRemoveWarn(tr::now)),
+			rpl::single(text),
 			st::defaultLightButton);
-		buttonX -= btn->width();
-		btn->moveToRight(wrap->width() - buttonX, buttonY);
-		btn->setClickedCallback([=] {
+		btn->setClickedCallback(std::move(handler));
+		buttons.push_back(btn);
+	};
+
+	if (info.activeWarns > 0) {
+		addButton(tr::ayu_AdminRemoveWarn(tr::now), [=] {
 			AyuDatabase::removeAllWarns(
 				static_cast<ID>(peer->id.value),
 				static_cast<ID>(peerToUser(info.user->id).bare));
 			controller->showToast(tr::ayu_AdminDone(tr::now));
 			refreshCallback();
 		});
-		buttonX -= buttonSpacing;
 	}
 
 	if (info.isMuted) {
-		const auto btn = Ui::CreateChild<Ui::RoundButton>(
-			wrap,
-			rpl::single(tr::ayu_AdminRemoveMute(tr::now)),
-			st::defaultLightButton);
-		buttonX -= btn->width();
-		btn->moveToRight(wrap->width() - buttonX, buttonY);
-		btn->setClickedCallback([=] {
+		addButton(tr::ayu_AdminRemoveMute(tr::now), [=] {
 			PerformUnmute(peer, info.user);
 			controller->showToast(tr::ayu_AdminDone(tr::now));
 			refreshCallback();
 		});
-		buttonX -= buttonSpacing;
 	}
 
 	if (info.isBanned) {
-		const auto btn = Ui::CreateChild<Ui::RoundButton>(
-			wrap,
-			rpl::single(tr::ayu_AdminRemoveBan(tr::now)),
-			st::defaultLightButton);
-		buttonX -= btn->width();
-		btn->moveToRight(wrap->width() - buttonX, buttonY);
-		btn->setClickedCallback([=] {
+		addButton(tr::ayu_AdminRemoveBan(tr::now), [=] {
 			PerformUnban(peer, info.user);
 			controller->showToast(tr::ayu_AdminDone(tr::now));
 			refreshCallback();
 		});
 	}
 
-	// Обработка изменения ширины
+	// Вся раскладка зависит от ширины, поэтому считается здесь,
+	// а не в момент создания (ширина тогда ещё нулевая).
 	wrap->widthValue(
 	) | rpl::on_next([=](int newWidth) {
+		if (newWidth <= 0) {
+			return;
+		}
 		wrap->resize(newWidth, height);
 		userpic->moveToLeft(
 			st::defaultPeerListItem.photoPosition.x(),
 			st::defaultPeerListItem.photoPosition.y());
-		nameLabel->resizeToWidth(newWidth - textLeft - (buttonsRight - buttonX) - buttonSpacing);
+
+		const auto buttonY = (height - st::defaultLightButton.height) / 2;
+		const auto buttonSpacing = st::boxRowPadding.left();
+		auto buttonX = newWidth - st::boxRowPadding.right();
+		for (const auto btn : buttons) {
+			buttonX -= btn->width();
+			btn->moveToLeft(buttonX, buttonY);
+			buttonX -= buttonSpacing;
+		}
+
+		const auto textWidth = std::max(
+			buttonX - textLeft,
+			st::defaultPeerListItem.namePosition.x());
+		nameLabel->resizeToWidth(textWidth);
 		if (bioLabel) {
-			bioLabel->resizeToWidth(newWidth - textLeft - (buttonsRight - buttonX) - buttonSpacing);
+			bioLabel->resizeToWidth(textWidth);
+		}
+		if (statusLabel) {
+			statusLabel->resizeToWidth(textWidth);
 		}
 	}, wrap->lifetime());
 
-	// Разделитель после строки
-	const auto separator = Ui::CreateChild<Ui::RpWidget>(container);
-	separator->resize(container->width(), st::lineWidth);
-	separator->paintRequest(
-	) | rpl::on_next([=] {
-		QPainter p(separator);
-		p.fillRect(separator->rect(), st::shadowFg);
-	}, separator->lifetime());
+	// Разделитель после строки.
+	Ui::AddDivider(container);
 }
 
 void ShowPanelBox(
 		not_null<Window::SessionController*> controller,
 		not_null<PeerData*> peer) {
-	auto channel = peer->asChannel();
-	if (!channel) {
+	if (!peer->asChannel()) {
+		// Basic groups have no ban/mute API, but warns are local.
 		controller->showToast(tr::ayu_AdminOnlyChannels(tr::now));
-		return;
 	}
 
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
@@ -749,8 +792,13 @@ void ShowPanelBox(
 		auto wraps = std::array{bannedWrap, mutedWrap, warnedWrap};
 
 		const auto refresh = std::make_shared<Fn<void()>>();
+		const auto weakBox = base::make_weak(box.get());
 		*refresh = [=] {
 			LoadAllParticipants(controller, peer, [=](std::vector<ParticipantInfo> participants) {
+				if (!weakBox) {
+					// The box was closed before the request finished.
+					return;
+				}
 				state->allParticipants = std::move(participants);
 
 				bannedWrap->entity()->clear();
@@ -855,7 +903,10 @@ void AddAdminAction(
 			};
 			addBtn(tr::ayu_AdminKick(tr::now), ActionType::Kick);
 			addBtn(tr::ayu_AdminBan(tr::now), ActionType::Ban);
-			addBtn(tr::ayu_AdminMute(tr::now), ActionType::Mute);
+			if (peer->isChannel()) {
+				// Per-user mute is unavailable in basic groups.
+				addBtn(tr::ayu_AdminMute(tr::now), ActionType::Mute);
+			}
 			addBtn(tr::ayu_AdminWarn(tr::now), ActionType::Warn);
 			box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 		}));

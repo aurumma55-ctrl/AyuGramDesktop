@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #pragma once
 
+#include "base/timer.h"
 #include "boxes/peer_list_controllers.h"
 
 namespace Main {
@@ -50,11 +51,18 @@ public:
 	[[nodiscard]] rpl::producer<int> selectedCountValue() const;
 	[[nodiscard]] std::vector<not_null<PeerData*>> collectSelected() const;
 
+	// Initially selected ids that never got a matching row (e.g. the chat
+	// is not in the rows list). They must be preserved on save.
+	[[nodiscard]] const std::vector<int64> &unappliedInitialSelection() const {
+		return _initialSelected;
+	}
+
 protected:
 	std::unique_ptr<Row> createRow(not_null<History*> history) override;
 	void prepareViewHook() override;
 
 private:
+	void applyInitialSelection();
 	void notifySelectedChanged();
 	[[nodiscard]] bool matchesType(
 		not_null<PeerData*> peer,
@@ -64,6 +72,7 @@ private:
 	const Mode _mode;
 	std::vector<int64> _initialSelected;
 	rpl::variable<int> _selectedCount = 0;
+	base::Timer _applyInitialSelectionTimer;
 
 };
 
