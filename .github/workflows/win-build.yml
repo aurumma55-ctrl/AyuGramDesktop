@@ -3,6 +3,7 @@ name: Windows build
 on:
   push:
     branches:
+      - 'dev'
       - 'devin/**'
       - 'patch/**'
       - 'feature/**'
