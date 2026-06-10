@@ -93,7 +93,8 @@ BulkChatController::BulkChatController(
 : ChatsListBoxController(session)
 , _session(session)
 , _mode(mode)
-, _initialSelected(initialSelected) {
+, _initialSelected(initialSelected)
+, _applyInitialSelectionTimer([=] { applyInitialSelection(); }) {
 }
 
 Main::Session &BulkChatController::session() const {
@@ -105,6 +106,11 @@ std::unique_ptr<BulkChatController::Row> BulkChatController::createRow(
 	if (history->peer->isSelf()) {
 		return nullptr;
 	}
+	if (!_initialSelected.empty()) {
+		// Rows are appended after this call returns, so postpone
+		// the initial selection until the current batch is built.
+		_applyInitialSelectionTimer.callOnce(1);
+	}
 	return std::make_unique<Row>(history);
 }
 
@@ -112,17 +118,27 @@ void BulkChatController::prepareViewHook() {
 	delegate()->peerListSetTitle((_mode == Mode::Whitelist)
 		? tr::ayu_BulkWhitelistTitle()
 		: tr::ayu_BulkManagementTitle());
+}
 
-	if (!_initialSelected.empty()) {
-		const auto count = delegate()->peerListFullRowsCount();
-		for (auto i = 0; i != count; ++i) {
-			const auto row = delegate()->peerListRowAt(i);
-			if (ranges::contains(_initialSelected, row->peer()->id.value)) {
+void BulkChatController::applyInitialSelection() {
+	// ChatsListBoxController builds rows after prepareViewHook(),
+	// so the initial selection is applied here, once rows exist.
+	if (_initialSelected.empty()) {
+		return;
+	}
+	const auto count = delegate()->peerListFullRowsCount();
+	for (auto i = 0; i != count; ++i) {
+		const auto row = delegate()->peerListRowAt(i);
+		const auto id = int64(row->peer()->id.value);
+		const auto it = ranges::find(_initialSelected, id);
+		if (it != end(_initialSelected)) {
+			if (!row->checked()) {
 				delegate()->peerListSetRowChecked(row, true);
 			}
+			_initialSelected.erase(it);
 		}
-		notifySelectedChanged();
 	}
+	notifySelectedChanged();
 }
 
 void BulkChatController::rowClicked(not_null<PeerListRow*> row) {
@@ -410,8 +426,10 @@ void ShowWhitelistEditor(not_null<Window::SessionController*> controller) {
 
 		box->addButton(tr::lng_settings_save(), [=, &settings] {
 			const auto peers = raw->collectSelected();
-			auto ids = std::vector<int64>();
-			ids.reserve(peers.size());
+			// Keep whitelisted ids that never got a row in this list,
+			// otherwise saving would silently drop them.
+			auto ids = raw->unappliedInitialSelection();
+			ids.reserve(ids.size() + peers.size());
 			for (const auto &peer : peers) {
 				ids.push_back(peer->id.value);
 			}
